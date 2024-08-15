@@ -1,0 +1,407 @@
+---
+title: An Investigation Into the Population Declines of San Francisco, California and Jackson, Mississippi
+author:
+  - name: Ryan Yu
+affiliation:
+    address: Department of Statistics, Miami University, Ohio, USA
+column_numbers: 4
+body_textsize: "31px"
+title_textsize: "100pt"
+author_textsize: "75pt"
+primary_colour: "#C41230"
+output: 
+  posterdown::posterdown_html:
+    self_contained: true
+logoright_name: miamiLogo.png
+logoleft_name: miamiLogo.png
+bibliography: packages.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+# Load libraries
+library(tidyverse)
+library(readxl)
+library(maps)
+library(ggthemes)
+library(usdata)
+library(kableExtra)
+```
+
+```{r echo=FALSE}
+# I'll do all my data reading and prepping at the beginning--after this first code chunk, all of the R code should be for making the graphs
+
+# Read in Cost Of Living Data
+cost_of_living <- read.csv("cost_of_living_us.csv", header=TRUE)
+
+# Add FIPS data to cost of living data
+cost_of_living <- cost_of_living %>% 
+  mutate(county = sub("\\s+[^ ]+$", "", county),
+         county = str_replace_all(county, "\\.", ""),
+         county = str_to_lower(county),
+         state = str_to_lower(state.name[match(state, state.abb)]),
+         polyname = paste(state, county, sep=","))
+
+cost_of_living_fips <- cost_of_living %>%
+  left_join(county.fips, by="polyname")
+
+################################################################################
+
+# Read in Demographics data
+demographics <- read.csv("county_demographics.csv", header=TRUE)
+
+################################################################################
+
+# Read in Education Data
+education <- read_excel("Education.xlsx", col_names = TRUE, skip=3)
+
+################################################################################
+# Read in map data, add FIPS data, and summarize cost of living by fips code
+county_map_data <- map_data("county")
+county_map_data <- county_map_data %>% 
+  mutate(polyname=paste(region,subregion,sep=","))
+
+county_map_fips <- county_map_data %>%
+  left_join(county.fips, by="polyname")
+
+cost_of_living_summ <- cost_of_living_fips %>% 
+  group_by(fips) %>% 
+  summarize(
+    avgTotalCost = mean(total_cost),
+    avgHealthcareCost = mean(healthcare_cost),
+    avgTransportationCost = mean(transportation_cost),
+    avgFoodCost = mean(food_cost),
+    avgHousingCost = mean(housing_cost),
+    avgOtherCost = mean(other_necessities_cost),
+    avgChildcareCost = mean(childcare_cost),
+    avgTaxes = mean(taxes),
+    avgMedianIncome = mean(median_family_income),
+  )
+
+county_cost_of_living <- left_join(county_map_fips, cost_of_living_summ, by="fips")
+
+################################################################################
+# Data prep for density plot
+cost_of_living_summ <- cost_of_living_summ %>% 
+  left_join(county.fips, by="fips")
+
+################################################################################
+# Prep data for proportional bar charts
+# calculate percentages of cost of living categories
+# select columns in correct order
+# pivot longer so data is in correct format for proportional bar chart
+cost_of_living_select_counties <- cost_of_living_summ %>% 
+  filter(polyname %in% c("mississippi,hinds", "california,san francisco")) %>% 
+   mutate(perc_health = avgHealthcareCost / avgTotalCost,
+         perc_trans = avgTransportationCost / avgTotalCost,
+         perc_food = avgFoodCost / avgTotalCost,
+         perc_house = avgHousingCost / avgTotalCost,
+         perc_other = avgOtherCost / avgTotalCost,
+         perc_child = avgChildcareCost / avgTotalCost,
+         perc_taxes = avgTaxes / avgTotalCost,
+         polyname = ordered(polyname, levels=c("california,san francisco","mississippi,hinds"))) %>%
+  select(polyname, perc_child, perc_food, perc_health, perc_house, perc_other, perc_taxes, perc_trans) %>% 
+  pivot_longer(cols=c(perc_trans, perc_taxes, perc_other, perc_house, perc_health, perc_food, perc_child), names_to = "Category", values_to = "Percentage")
+
+################################################################################
+# Prepare data for Proportional Education Bar Charts
+# Select columns for 1970 data, rename columns, then pivot longer
+education_rates_1970 <- education %>% 
+  mutate(`County-State` = paste(`Area name`, State, sep=", ")) %>% 
+  filter(`County-State` %in% c("Hinds County, MS", "San Francisco County, CA")) %>% 
+  mutate(total_people = `Less than a high school diploma, 1970` + `High school diploma only, 1970` + `Some college (1-3 years), 1970` + `Four years of college or higher, 1970`,
+         Year = 1970) %>% 
+  select(`County-State`, `Percent of adults with less than a high school diploma, 1970`, `Percent of adults with a high school diploma only, 1970`, `Percent of adults completing some college (1-3 years), 1970`, `Percent of adults completing four years of college or higher, 1970`, total_people, Year) 
+
+colnames(education_rates_1970)[2:5] <- c("Percent < HS Diploma", "Percent HS Diploma", "Percent Some College", "Percent Bachelors+")
+
+education_rates_1970 <- education_rates_1970 %>% 
+  pivot_longer(cols = c(`Percent < HS Diploma`, `Percent HS Diploma`, `Percent Some College`, `Percent Bachelors+`), names_to = "Level_of_Education", values_to = "Percentage")
+
+#-------------------------------------------------------------------------------
+# Select columns for 1980 data, rename columns, then pivot longer
+education_rates_1980 <- education %>% 
+  mutate(`County-State` = paste(`Area name`, State, sep=", ")) %>% 
+  filter(`County-State` %in% c("Hinds County, MS", "San Francisco County, CA")) %>% 
+  mutate(total_people = `Less than a high school diploma, 1980` + `High school diploma only, 1980` + `Some college (1-3 years), 1980` + `Four years of college or higher, 1980`,
+         Year = 1980) %>% 
+  select(`County-State`, `Percent of adults with less than a high school diploma, 1980`, `Percent of adults with a high school diploma only, 1980`, `Percent of adults completing some college (1-3 years), 1980`, `Percent of adults completing four years of college or higher, 1980`, total_people, Year) 
+
+colnames(education_rates_1980)[2:5] <- c("Percent < HS Diploma", "Percent HS Diploma", "Percent Some College", "Percent Bachelors+")
+
+education_rates_1980 <- education_rates_1980 %>% 
+  pivot_longer(cols = c(`Percent < HS Diploma`, `Percent HS Diploma`, `Percent Some College`, `Percent Bachelors+`), names_to = "Level_of_Education", values_to = "Percentage")
+
+#-------------------------------------------------------------------------------
+# Select columns for 1990 data, rename columns, then pivot longer
+education_rates_1990 <- education %>% 
+  mutate(`County-State` = paste(`Area name`, State, sep=", ")) %>% 
+  filter(`County-State` %in% c("Hinds County, MS", "San Francisco County, CA")) %>% 
+  mutate(total_people = `Less than a high school diploma, 1990` + `High school diploma only, 1990` + `Some college or associate's degree, 1990` + `Bachelor's degree or higher, 1990`,
+         Year = 1990) %>% 
+  select(`County-State`, `Percent of adults with less than a high school diploma, 1990`, `Percent of adults with a high school diploma only, 1990`, `Percent of adults completing some college or associate's degree, 1990`, `Percent of adults with a bachelor's degree or higher, 1990`, total_people, Year) 
+
+colnames(education_rates_1990)[2:5] <- c("Percent < HS Diploma", "Percent HS Diploma", "Percent Some College", "Percent Bachelors+")
+
+education_rates_1990 <- education_rates_1990 %>% 
+  pivot_longer(cols = c(`Percent < HS Diploma`, `Percent HS Diploma`, `Percent Some College`, `Percent Bachelors+`), names_to = "Level_of_Education", values_to = "Percentage")
+
+#-------------------------------------------------------------------------------
+# Select columns for 2000 data, rename columns, then pivot longer
+education_rates_2000 <- education %>% 
+  mutate(`County-State` = paste(`Area name`, State, sep=", ")) %>% 
+  filter(`County-State` %in% c("Hinds County, MS", "San Francisco County, CA")) %>% 
+  mutate(total_people = `Less than a high school diploma, 2000` + `High school diploma only, 2000` + `Some college or associate's degree, 2000` + `Bachelor's degree or higher, 2000`,
+         Year = 2000) %>% 
+  select(`County-State`, `Percent of adults with less than a high school diploma, 2000`, `Percent of adults with a high school diploma only, 2000`, `Percent of adults completing some college or associate's degree, 2000`, `Percent of adults with a bachelor's degree or higher, 2000`, total_people, Year) 
+
+colnames(education_rates_2000)[2:5] <- c("Percent < HS Diploma", "Percent HS Diploma", "Percent Some College", "Percent Bachelors+")
+
+education_rates_2000 <- education_rates_2000 %>% 
+  pivot_longer(cols = c(`Percent < HS Diploma`, `Percent HS Diploma`, `Percent Some College`, `Percent Bachelors+`), names_to = "Level_of_Education", values_to = "Percentage")
+
+#-------------------------------------------------------------------------------
+# Select columns for 2012 data, rename columns, then pivot longer
+education_rates_2012 <- education %>% 
+  mutate(`County-State` = paste(`Area name`, State, sep=", ")) %>% 
+  filter(`County-State` %in% c("Hinds County, MS", "San Francisco County, CA")) %>% 
+  mutate(total_people = `Less than a high school diploma, 2008-12` + `High school diploma only, 2008-12` + `Some college or associate's degree, 2008-12` + `Bachelor's degree or higher, 2008-12`,
+         Year = 2012) %>% 
+  select(`County-State`, `Percent of adults with less than a high school diploma, 2008-12`, `Percent of adults with a high school diploma only, 2008-12`, `Percent of adults completing some college or associate's degree, 2008-12`, `Percent of adults with a bachelor's degree or higher, 2008-12`, total_people, Year) 
+
+colnames(education_rates_2012)[2:5] <- c("Percent < HS Diploma", "Percent HS Diploma", "Percent Some College", "Percent Bachelors+")
+
+education_rates_2012 <- education_rates_2012 %>% 
+  pivot_longer(cols = c(`Percent < HS Diploma`, `Percent HS Diploma`, `Percent Some College`, `Percent Bachelors+`), names_to = "Level_of_Education", values_to = "Percentage")
+
+#-------------------------------------------------------------------------------
+# Select columns for 2021 data, rename columns, then pivot longer
+education_rates_2021 <- education %>% 
+  mutate(`County-State` = paste(`Area name`, State, sep=", ")) %>% 
+  filter(`County-State` %in% c("Hinds County, MS", "San Francisco County, CA")) %>% 
+  mutate(total_people = `Less than a high school diploma, 2017-21` + `High school diploma only, 2017-21` + `Some college or associate's degree, 2017-21` + `Bachelor's degree or higher, 2017-21`,
+         Year = 2021) %>% 
+  select(`County-State`, `Percent of adults with less than a high school diploma, 2017-21`, `Percent of adults with a high school diploma only, 2017-21`, `Percent of adults completing some college or associate's degree, 2017-21`, `Percent of adults with a bachelor's degree or higher, 2017-21`, total_people, Year) 
+
+colnames(education_rates_2021)[2:5] <- c("Percent < HS Diploma", "Percent HS Diploma", "Percent Some College", "Percent Bachelors+")
+
+education_rates_2021 <- education_rates_2021 %>% 
+  pivot_longer(cols = c(`Percent < HS Diploma`, `Percent HS Diploma`, `Percent Some College`, `Percent Bachelors+`), names_to = "Level_of_Education", values_to = "Percentage")
+
+#-------------------------------------------------------------------------------
+# join all the year-specific data sets into one, combined data set
+# re-order the factor levels for the level of education and county columns
+education_rates_all <- rbind(education_rates_1970, education_rates_1980, education_rates_1990, education_rates_2000, education_rates_2012, education_rates_2021) %>% 
+  mutate(Level_of_Education = ordered(Level_of_Education,levels=c("Percent Bachelors+","Percent Some College","Percent HS Diploma", "Percent < HS Diploma")),
+         `County-State` = ordered(`County-State`, levels=c("San Francisco County, CA", "Hinds County, MS", "Hamilton County, OH")))
+
+# simplify labels to appear on plot
+education_rates_all <- education_rates_all %>%
+  mutate(city = ifelse(`County-State` == "Hinds County, MS", "Jackson", "San Francisco")) %>% 
+  select(-`County-State`)
+
+################################################################################
+# Read and prep data for income per capita line plot
+income <- read_xls("fredgraph.xls",skip=11)
+
+# rename columns
+colnames(income) <- c("date", "San Francisco, CA", "Jackson, MS")
+
+# pivot longer so data is in correct format for line plot
+income <- income %>% 
+  mutate(date=str_sub(date, 1, 4),
+         date=as.numeric(date)) %>% 
+  pivot_longer(cols=c("San Francisco, CA", "Jackson, MS"),
+               names_to = "city",
+               values_to = "income_per_capita")
+
+################################################################################
+# Make Hinds County demographic table
+# This is a manually entered data frame since I would have otherwise needed to read in 4 different (large) US census files and then filter for the 3 pieces of information I need about Hinds County
+# The links to the webpages I pulled the information from are below:
+# https://www2.census.gov/library/publications/decennial/1990/cp-1/cp-1-26.pdf\
+# https://data.census.gov/table/DECENNIALDPSF42000.DP1?q=demographics+in+Hinds+County,+MS+in+2000
+# https://data.census.gov/table/ACSDP1Y2010.DP05?q=demographics+in+Hinds+County,+MS+in+2010
+# https://data.census.gov/table/ACSDP5Y2020.DP05?q=demographics+in+Hinds+County,+MS+in+2020
+
+# create data frame using info pulled from sources above
+jackson_demogs_race <- data.frame(
+  year = c(1990, 2000, 2010, 2020),
+  total_pop = c(254441, 250800, 245629, 235604),
+  white_pop = c(123177, 93781, 69899, 58510),
+  black_pop = c(129588, 152941, 171395, 171899)
+)
+
+# pivot longer so that data is in correct format for heatmap
+jackson_demogs_race_long <- jackson_demogs_race %>% 
+  rename("White" = "white_pop", "Black" = "black_pop") %>% 
+  pivot_longer(cols=c(White, Black), names_to = "demographic", values_to = "population") %>% 
+  group_by(year) %>% 
+  mutate(percentage = population / total_pop)
+```
+
+# Introduction
+
+What makes a good and healthy city? This is a difficult question with no one concrete or absolute answer. However, one metric that is often used to evaluate the state of a city is its population. While there are many different factors that go into the overall health of a city, it is almost never a good sign when the population of a metropolitan city is decreasing. However, this is currently the reality for some metropolitan areas in the United States, with factors such as housing prices, domestic migration, and especially the virtualization of the workplace$^1$. Two cities that have been hit especially hard are San Francisco, CA, losing almost a quarter million residents from 2020 to 2022$^2$, and Jackson, MS, which is America's fastest shrinking city$^3$. Both are in similar situations of population decline, but I believe San Francisco's case to be a side effect from the COVID pandemic, while Jackson's case may have a deeper, more ingrained root cause. In this report, I aim to investigate these two cities by their costs of living and demographics to attempt to explain their respective population drops.
+
+
+# San Francisco
+
+One key factor that could influence the population declines of San Francisco and Jackson is the cost of living for the two cities. If the cost of living is astronomically high, it could certainly be a factor as to why people would leave a city. San Francisco has a reputation of being a wildly popular yet expensive city to live in, mainly due to its location on the bay and its plethora of giant tech companies located there. But, how does it compare to the rest of the US?
+
+```{r choropleth, out.width='80%', fig.align='center', fig.cap='Choropleth map showing estimated cost of living in US counties'}
+ggplot() +
+  geom_polygon(aes(x=long,y=lat,group=group, fill=avgTotalCost),
+               data=county_cost_of_living) +
+  theme_map() +
+  coord_quickmap()+
+  labs(title="Cost of Living by US County", 
+       caption=expression(paste("Source: kaggle.com", ""^4)))+
+  theme(plot.title = element_text(hjust=0.5),         # clean up plot clutter
+        plot.subtitle = element_text(hjust=0.5),
+        legend.position = "right")+
+  scale_fill_viridis_c(option="turbo",                # change fill gradient and format guide bar
+                       name="Cost of\nLiving",
+                       guide=guide_colorbar(ticks=T, label=T,
+                                           barheight = 5,
+                                           barwidth = 0.5))
+```
+
+San Francisco has a noticeably larger cost of living that almost every other county in the US, approaching \$150,000. But it is hard to see just far removed this is compared to the cost of living in other US counties. So, visualizing another way for easier comparison:
+
+```{r colDensity, out.width='80%', fig.align='center', fig.height=4, fig.cap='Density plot showing distribution of cost of living in US counties'}
+# filter(cost_of_living_summ, fips==6075) %>%   # San Fran cost of living
+#   select(avgTotalCost)
+
+# filter(cost_of_living_summ, fips==28049) %>%   # Jackson cost of living
+#   select(avgTotalCost)
+
+ggplot() +
+  geom_density(aes(x=avgTotalCost), color="blue", fill="lightblue", alpha=0.6, data=cost_of_living_summ) +
+  geom_vline(xintercept=68370, color="red") +              # add line for Hinds County, MS
+  geom_vline(xintercept=142391, color="darkgreen") +       # add line for San Francisco
+  annotate("text", label="Jackson, MS", x=68370, y=5.5e-5, hjust=-.1, size=4, color="red") +    # add text to plot
+  annotate("text", label="San Francisco, CA", x=142391, y=5.5e-5, hjust=1.05, size=4, color="darkgreen") + 
+  labs(caption=expression(paste("Source: kaggle.com", ""^4))) +
+  labs(x="Average Cost of Living (USD)", y="", title="Distribution of Costs of Living for US Counties") + 
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),              # clean up plot, remove clutter
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    plot.title = element_text(hjust=0.5),
+  )
+```
+
+San Francisco's cost of living is in the very right tail end of the density plot, demonstrating how extreme it is compared to other US counties--on average, it costs over twice as much to live in San Francisco than it does in Jackson. In fact, San Francisco recently ranked in the top 10 most expensive cities in the world, with it's housing costs and utilities costs being 113\% and 67.5\% higher than their respective national averages$^5$. Meanwhile, Jackson has a much more moderate cost of living, close to the US average. With these statistics in mind, we investigate the proportion of the cost of living by different categories, essentially splitting the total cost of living into different groups, in order to try and see more specific differences between the two cities of interest. Here, we use county-level data, using San Francisco County in California and Hinds County in Mississippi (where the majority of Jackson is located). 
+
+```{r colPropBar, out.width='80%', fig.align='center', fig.cap='Proportional bar chart showing distributions of categories of cost of living'}
+ggplot(data=cost_of_living_select_counties, aes(x=polyname,y=Percentage)) +
+  geom_bar(aes(fill=Category), position="fill", stat="identity", color="black") +
+  geom_text(aes(label=scales::percent(round(Percentage,2)),
+                group=polyname),
+            stat="identity",
+            position=position_stack(vjust=0.5),
+            color="white") +
+  labs(x="", y="", fill="Category", title="Distributions of Cost of Living in San Francisco and Jackson", caption=expression(paste("Source: kaggle.com", ""^6))) +
+  scale_fill_manual(values=c("#90be6d88","#43aa8b88","#4d908e88","#f94144","#57759088","#f8961e","#277da155"), #used muted colors in general, red and orange for the categories I want to highlight
+                    labels=c("Childcare", "Food", "Healthcare", "Housing", "Other", "Taxes", "Transportation")) + 
+  scale_x_discrete(labels=c("San Francisco", "Jackson")) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),         # Clean up the plot, remove clutter
+    axis.text.y = element_blank(),
+    plot.title = element_text(hjust=0.5)
+    )
+```
+
+The distribution of categories within the cost of living tell a similar story--residents of San Francisco typically spend around 30\% of their total cost of living on their housing situation, compared to only 17\% in Jackson. This is unfeasible for some people to afford while also saving and planning for the future. These costs are being driven up by San Francisco's leading role in the tech industry--with so many tech companies based in San Francisco exploding onto the industry scene recently, there are also a large number of very wealthy company executives located there, leading to increased rent and housing prices$^7$. Now, since the pandemic has introduced the remote work culture, people no longer have to live in San Francisco to work for the big name companies there--instead, they can work from the comfort of their own home, as evidenced by the recent reduction of 34.7\% of its in-person workforce$^8$. This has lead to an increased gap between socioeconomic classes--wealthy company executives are more prevalent, while workers not wanting to pay the high housing costs are leaving. The end result is a city with many extremely wealthy people and a large homeless population at the same time. The city is even spending more money on programs simply to manage the homelessness problem, while making little progress towards solving it.
+
+It's not just the housing market that threatens San Francisco--with the birth of the largely remote work force also comes the abandonment of office spaces. While some companies still maintain their office space as on option for their workers, many others have completely given up on their office space, leading to over 31\% of the total office space in San Francisco being vacant. Further, only about 45\% of workers in the San Francisco metropolitan area go into the office every week$^9$. With fewer people regularly visiting downtown San Francisco, the city is losing a large chunk of its local spending, possibly in the billions of dollars range. This could lead to negative impacts on the city's infrastructure and economic landscape. 
+
+# Jackson
+
+```{r propBarEdu, out.width='80%', fig.align='center', fig.cap='Proportional bar chart showing educational attainment levels over time'}
+ggplot(aes(x=city, y=Percentage), data=education_rates_all) +
+  geom_bar(aes(fill=Level_of_Education), position="stack",stat="identity", color="black") +
+  labs(x="", y="", title="Educational Attainment in San Francisco and Jackson from 1970-2021", caption=expression(paste("Source: USDA Government Data", ""^{10}))) +
+  geom_text(aes(label=paste0((round(Percentage,0)), "%"),       # add text overlaying each bar section
+                group=Level_of_Education),
+            stat="identity",
+            position=position_stack(vjust=0.5),
+            color="white") +
+  theme_minimal() +
+  scale_fill_manual(values=c("#f94144", "#f8961eaa", "#bababa", "#D3D3D3"), labels=c("Bachelors or higher", "Some College", "HS Diploma", "Less than HS Diploma")) +      # again use muted colors for sections we are not interested in
+  facet_grid(Year~.) +
+  coord_flip() +
+  theme(legend.position = "bottom",             # format legend
+        legend.direction = "horizontal",
+        legend.title = element_blank(),         # clean up plot clutter
+        panel.grid = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.x = element_blank(),
+        strip.text.y.right = element_text(angle = 0)      # rotate years on right side of y-axis
+        )
+```
+
+While San Francisco's situation can be depicted and partially explained by data about the cost of living and its distribution, this is not the case with Jackson--the cost of living here is much more evenly spread. Instead, we look at demographics as a possible avenue of exploration. As seen in Figure 4, starting as far back as 1970, the two areas had fairly equal distributions of education levels. However, as time passes, we see a drastic increase in the overall education attainment level in San Francisco, especially in the population with bachelors degrees or higher. Just as noticeable as San Francisco's rapid growth, however, is Jackson's lack of growth. Even in 2021, only 31\% of people in Jackson had obtained a bachelor's degree--a proportion that was present in San Francisco even before 1990. While education level is not the sole determinant of income, it is a large factor--people with bachelor's degrees or higher tend to make more money than those without. In fact, people who have attended some college but did not graduate (the most prevalent category in Jackson) make about \$40,000 annually, while those with only a bachelor's degree make about \$1,173 weekly, or about \$60,000 annually. If people continue and get more advanced degrees, their salary will also continue to rise$^{11}$. Since Jackson has a significantly lower level of educational attainment, it is likely that it also has a lower income on average when compared to San Francisco.
+
+```{r lineIncome, out.width='80%', fig.align='center', warning=FALSE, fig.cap='Line chart showing income per capita over time'}
+ggplot(aes(x=date), data=income) + 
+  geom_line(aes(y=income_per_capita, group=city, color=city), data=income, linewidth=1) +
+  geom_line(y=52000, linewidth=.9, linetype=3, color="firebrick") +      # horizontal line with min income for SF
+  geom_line(y=55000, linewidth=.9, linetype=3, color="seagreen") +       # horizontal line with max income for Jackson
+  annotate("text", label="Max income per capita in Jackson, MS", x=2005, y=48000, size=4, color="firebrick") + 
+  annotate("text", label="Min income per capita in San Francisco, CA", x=2015, y=60000, size=4, color="seagreen") +
+  scale_color_manual(values=c("red", "darkgreen")) +
+  labs(x="", y="", title="Income Per Capita (USD) of San Francisco and Jackson", caption=expression(paste("Source: Federal Reserve Economic Data", ""^{12})), color="") + 
+  theme_minimal() + 
+  theme(legend.position = "bottom",              # format legend
+        legend.direction = "horizontal",
+        legend.title = element_blank(),          # clean up plot clutter
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.title = element_text(hjust=0.5))
+```
+
+The income per capitas shown demonstrate the conception and logic laid above. Jackson does in fact have a lower income per capita than San Francisco, and the gap is increasing. In fact, even 2021, the maximum income per capita in Jackson had never been on the same level as the minimum income per capita seen in San Francisco--up to a quarter of the residents in Jackson live in poverty. Additionally, the average resident in Jackson only spends about 11\% of their total cost of living on taxes (Figure 3). So, combined with the already low incomes and cost of living, there is not much money being put back into the city and its facilities. This lack of stimulus in the economy has contributed to Jackson's water crisis, which has been in the national spotlight since 2022, even though concerning signs had been noticed as early as the 1940's, with the EPA even issuing warnings in the 1970's$^{13}$. The infrastructure is some of the oldest in America, leading to over 150,000 people being left without water for days at a time. Even when the system functions, people are constantly reporting brown tap water and are constantly being advised to boil water for safety purposes. In other words, the water crisis in Jackson is not something that appeared overnight--there have been signs pointing towards it for decades. But why was nothing done to address these issues? Many people believe it to be the result of racial injustice and social ignorance towards the vastly black population in Jackson.
+
+```{r demogsHeatMap, out.width='80%', fig.align='center', warning=FALSE, fig.cap='Heatmap of Hinds County, MS racial demographics'}
+ggplot(data=jackson_demogs_race_long, aes(x=year,y=demographic,fill=percentage))+
+  geom_tile(color="black")+         # make heat map
+  geom_text(aes(label=prettyNum(population, big.mark = ",")))+      # overlay raw population numbers (formatted nicely)
+  scale_fill_gradient(low="skyblue",high="dodgerblue")+             # change fill gradient
+  labs(x="", y="", fill="Percent of\nPopulation", title="Racial Population Demographics in Hinds County, MS", caption=expression(paste("Source: US Census Bureau Data", ""^{13}, ""^",", ""^14)))+
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        plot.title = element_text(hjust=0.5))
+```
+
+In 1990, there were approximately the same distribution of white people and black people in Hinds County's population. However, in 2020, about 73\% of Hinds County's population was black, yet the demographic distribution in Jackson itself was even more severe--Jackson's population is now over 80\% black$^{15}$. Even though Jackson's population as a whole is declining, both the number of black people and the proportion of black people in Jackson's population have been steadily increasing, contrasting with the direct opposite trend for white people. Since many of the white families in Jackson have relocated to the surrounding suburbs. Many people point to this "white flight", in conjunction with lingering racial injustices, as a primary cause of the deterioration of the water treatment infrastructure in Jackson. As more and more white families moved to the surrounding suburbs and counties, so did the taxes and state funding--instead of refurbishing the old and outdated water pumps, Mississippi officials instead allocated money towards the development of the new suburbs where the white families would live. The situation has become so dire that it has even reached the national stage--President Biden himself released a statement about the water crisis in Jackson, and invested \$115 million towards the repair of the failing systems$^{16}$.
+
+# Conclusion
+
+San Francisco, CA and Jackson, MS have seen a drastic and alarming decrease in population in recent years, yet their situations and possible remediation efforts look completely different. At first glance, it may seem like San Francisco is a healthy and booming city, whose major role in the technological world has driven up housing prices. However, on closer inspection, we see a city which was hit hard from the pandemic and is still reeling from its effects. People left cities in droves during the COVID to get away from large groups of people. Once workers were introduced to remote work, there was no going back to the Bay Area--people could work from home for the industry leading tech companies in San Francisco without needing to pay the extreme housing prices and taxes. In a way, the city's economic growth is harmful--by being such a hot spot for technological innovation, there has been an increase in the number of wealthy people and the socioeconomic gap has increased, resulting in vastly higher housing prices. If San Francisco were to build affordable housing and encourage people to move back to the city, the extra local spending would go a long way towards the revitalization of the city. The situation in Jackson could not be more different--it is a city of economic stagnation and failing infrastructure. The education levels and income per capita have not grown at the same rate as other metropolitan areas in the United States. Jackson also has an increasingly black population, but the demographic shift has not resulted in a associated economic impact. These facts combined with a low tax rate means there is not enough money to maintain and modernize necessary infrastructure. To try and fix the declining population in Jackson will take a lot of work, starting from the very basics of renovating the infrastructure and stimulating the economy of the city, and addressing any lingering racism or social injustices.
+
+# References
+1. https://thehill.com/homenews/state-watch/600318-americas-major-metro-areas-are-shrinking/
+2. https://sfstandard.com/2023/03/31/san-francisco-bay-area-california-population-decline-census-pandemic-covid/
+3. https://www.clarionledger.com/story/news/2023/05/30/jackson-population-shrinking-at-alarming-rate/70260052007/
+4. https://www.kaggle.com/datasets/asaniczka/us-cost-of-living-dataset-3171-counties/data
+5. https://www.sfgate.com/local/article/cost-living-san-francisco-17726528.php
+6. https://www.kaggle.com/datasets/asaniczka/us-cost-of-living-dataset-3171-counties/data
+7. https://brownpoliticalreview.org/2018/10/homelessness/
+8. https://sfstandard.com/2023/02/20/san-francisco-is-losing-billions-a-year-in-local-spending-to-remote-working/
+9. https://sfstandard.com/2023/06/29/the-grim-state-of-downtown-san-francisco-by-the-numbers/
+10. https://www.ers.usda.gov/data-products/county-level-data-sets/county-level-data-sets-download-data/
+11. https://www.indeed.com/career-advice/pay-salary/average-salary-with-college-degree-vs-without
+12. https://fred.stlouisfed.org/series/PCPI06075
+13. https://www2.census.gov/library/publications/decennial/1990/cp-1/cp-1-26.pdf
+14. https://data.census.gov/table/ACSDP5Y2020.DP05?q=demographics+in+Hinds+County,+MS+in+2020
+15. https://time.com/6209710/jackson-mississippi-water-crisis/
+16. https://www.whitehouse.gov/briefing-room/statements-releases/2023/06/06/statement-from-president-joe-biden-on-funding-for-jackson-mississippis-water-infrastructure/
+
